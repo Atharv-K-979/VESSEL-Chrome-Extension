@@ -76,18 +76,48 @@ async function analyzePageContent(html, text = "") {
 }
 
 async function analyzeSpecification(text) {
-    const { geminiApiKey } = await chrome.storage.local.get('geminiApiKey');
+    const { geminiApiKey, specModelPreference } = await chrome.storage.local.get(['geminiApiKey', 'specModelPreference']);
+    // specModelPreference: 'gemini' | 'local' | undefined (default = 'gemini' if key present, else 'local')
+    const preferGemini = specModelPreference !== 'local';
 
     let requirements = [];
+    let modelSource = 'heuristic';
+    const startTime = Date.now();
 
-    if (geminiApiKey) {
-        console.log('Sending spec to Gemini for analysis...');
-        const geminiClient = new GeminiClient(geminiApiKey);
-        requirements = await geminiClient.generateRequirements(text);
-    } else {
-        console.log('Gemini API key not found, attempting local generation...');
-        requirements = await MLEngine.generateRequirements(text);
+    // ── Attempt 1: Gemini (if key present and preference allows) ───────────
+    if (geminiApiKey && preferGemini) {
+        try {
+            console.log('[VESSEL] Sending spec to Gemini for analysis...');
+            const geminiClient = new GeminiClient(geminiApiKey);
+            requirements = await geminiClient.generateRequirements(text);
+            modelSource = 'gemini';
+        } catch (geminiError) {
+            console.warn('[VESSEL] Gemini failed, falling back to local model:', geminiError.message);
+            // Signal fallback to content script via a special flag
+            modelSource = 'local_fallback';
+        }
     }
+
+    // ── Attempt 2: Local ML engine (if Gemini skipped or failed) ──────────
+    if (requirements.length === 0) {
+        try {
+            console.log('[VESSEL] Using local ML engine for spec analysis...');
+            requirements = await MLEngine.generateRequirements(text);
+            if (modelSource !== 'local_fallback') modelSource = 'local';
+        } catch (localError) {
+            console.warn('[VESSEL] Local model also failed, using heuristic:', localError.message);
+            modelSource = 'heuristic';
+        }
+    }
+
+    // ── Attempt 3: Hard-coded heuristic defaults ─────────────────────────
+    if (requirements.length === 0) {
+        const geminiClient = new GeminiClient(null);
+        requirements = geminiClient.getDefaultRequirements();
+        modelSource = 'heuristic';
+    }
+
+    const inferenceMs = Date.now() - startTime;
 
     const missing = requirements.map(reqText => ({
         category: 'Generated Requirement',
@@ -95,7 +125,7 @@ async function analyzeSpecification(text) {
         score: 0.9
     }));
 
-    return { missing };
+    return { missing, inferenceMs, modelSource };
 }
 
 function getRequirementTemplate(category) {

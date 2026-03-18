@@ -304,12 +304,40 @@
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-label">Gemini API Key</div>
-                        <div class="setting-desc">Required for generating security requirements.</div>
+                        <div class="setting-desc">Required for cloud-based requirement generation.</div>
                     </div>
                     <div>
                         <input type="password" id="gemini-api-key" placeholder="Enter API Key"
                             style="padding: 10px; border-radius: 6px; width: 220px;">
                     </div>
+                </div>
+
+                <!-- Model Preference Toggle -->
+                <div class="setting-item" style="flex-direction: column; align-items: flex-start; gap: 10px;">
+                    <div class="setting-label">Requirement Engine</div>
+                    <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; color:var(--text-primary);">
+                            <input type="radio" id="model-pref-gemini" name="specModelPreference" value="gemini"
+                                style="accent-color: var(--accent);">
+                            ✨ Gemini (cloud – more accurate)
+                        </label>
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; color:var(--text-primary);">
+                            <input type="radio" id="model-pref-local" name="specModelPreference" value="local"
+                                style="accent-color: var(--accent);">
+                            🖥️ Local model (privacy-first, offline)
+                        </label>
+                    </div>
+                    <div class="setting-desc">When Gemini is selected but unavailable, VESSEL automatically falls back to the local model.</div>
+                    <!-- Model status indicator -->
+                    <div id="model-status" style="
+                        background: rgba(240,246,252,0.05);
+                        border: 1px solid var(--border-color);
+                        border-radius: 6px;
+                        padding: 8px 12px;
+                        font-size: 12px;
+                        color: var(--text-secondary);
+                        width: 100%;
+                    ">🔄 Checking model status…</div>
                 </div>
             </div>
 
