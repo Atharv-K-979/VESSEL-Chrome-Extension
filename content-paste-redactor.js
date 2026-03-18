@@ -1,5 +1,5 @@
 (function () {
-    // Register synchronously to catch early events
+    // Register synchronously to catch early paste events
     document.addEventListener('paste', handlePaste, true);
 
     let patternsModule = null;
@@ -33,20 +33,22 @@
                 event.preventDefault();
                 event.stopImmediatePropagation();
 
-                const detectedPatterns = [...new Set(matches.map(m => m.name))].join(', ');
-                console.log(`VESSEL: Sensitive data detected in paste. Patterns: ${detectedPatterns}`);
+                // Build a de-duplicated list of detected type names for logging/display
+                const detectedTypes = [...new Set(matches.map(m => m.name))];
+                console.log(`[VESSEL] Sensitive data detected in paste. Types: ${detectedTypes.join(', ')}`);
 
-                // Send to service worker for tracking the risk assessment
+                // Log incident to service worker
                 chrome.runtime.sendMessage({
                     action: 'logIncident',
                     data: {
                         type: 'sensitive_paste',
-                        details: `Blocked pasting: ${detectedPatterns}`,
-                        score: 0.8, // Static risk score for pasting sensitive data
+                        details: `Blocked pasting: ${detectedTypes.join(', ')}`,
+                        score: 0.8,
                         timestamp: Date.now()
                     }
                 });
 
+                // Show the redaction modal — passes full matches with type info
                 uiModule.showRedactionModal(field, pastedText, matches);
             }
         } catch (err) {
@@ -54,6 +56,13 @@
         }
     }
 
+    /**
+     * scanForSensitiveData – Runs every pattern against the pasted text and
+     * returns an array of match objects enriched with type metadata.
+     *
+     * @param {string} text
+     * @returns {Array}
+     */
     function scanForSensitiveData(text) {
         let allMatches = [];
         if (!patternsModule || !patternsModule.patterns) return allMatches;
@@ -62,18 +71,22 @@
             pattern.regex.lastIndex = 0;
             let match;
             while ((match = pattern.regex.exec(text)) !== null) {
-                if (pattern.validate && !pattern.validate(match[0])) {
-                    continue;
-                }
+                // Skip matches that fail the optional validate check
+                if (pattern.validate && !pattern.validate(match[0])) continue;
 
                 allMatches.push({
-                    name: pattern.name,
-                    type: pattern.name,
-                    value: match[0],
-                    0: match[0],
-                    index: match.index,
-                    length: match[0].length,
-                    patternObj: pattern
+                    // Standard match fields
+                    name:        pattern.name,
+                    type:        pattern.name,
+                    value:       match[0],
+                    0:           match[0],
+                    index:       match.index,
+                    length:      match[0].length,
+                    // Redaction metadata passed through to redactor.js
+                    redactStyle: pattern.redactStyle || 'default',
+                    priority:    pattern.priority    || 0,
+                    // Keep a reference to the full pattern for redactor
+                    patternObj:  pattern
                 });
             }
         });
