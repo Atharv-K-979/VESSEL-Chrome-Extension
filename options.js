@@ -86,26 +86,52 @@ function saveOptions() {
 
 /**
  * updateModelStatus – Populates the #model-status indicator with the current
- * engine configuration and availability information.
+ * engine configuration, availability, and live backend state from background.js.
  */
 function updateModelStatus() {
     const statusEl = document.getElementById('model-status');
     if (!statusEl) return;
 
-    chrome.storage.local.get(['geminiApiKey', 'specModelPreference'], (result) => {
-        const pref = result.specModelPreference || 'gemini';
-        const hasKey = !!(result.geminiApiKey && result.geminiApiKey.length > 0);
+    // Show loading spinner while we query the background
+    statusEl.innerHTML = '🔄 Checking model status…';
+
+    chrome.storage.local.get(['geminiApiKey', 'specModelPreference'], async (result) => {
+        const pref   = result.specModelPreference || 'gemini';
+        const hasKey = !!(result.geminiApiKey?.length);
+
+        // Query the background worker for live ML engine state
+        let backend    = 'unknown';
+        let modelReady = false;
+        try {
+            const status = await chrome.runtime.sendMessage({ action: 'getModelStatus' });
+            if (status) { backend = status.backend || backend; modelReady = status.modelReady; }
+        } catch (_) { /* background may be asleep – use cached storage value */ }
+
+        // If runtime query fails, fall back to cached value
+        if (backend === 'unknown') {
+            const cached = await chrome.storage.local.get('mlModelStatus');
+            backend = cached.mlModelStatus || 'unknown';
+        }
+
+        const backendLabel = {
+            onnx:    '⚙️ ONNX model loaded',
+            mock:    '📋 Heuristic fallback (no ONNX model)',
+            loading: '⏳ Local model loading…',
+            unknown: '❓ Status unknown'
+        }[backend] ?? `🖥️ ${backend}`;
 
         let html = '';
-
         if (pref === 'gemini') {
             if (hasKey) {
-                html = `<span style="color:#34D399;">✅ Gemini 1.5 Flash</span> – API key configured. Will fallback to local model if Gemini is unreachable.`;
+                html  = `<span style="color:#34D399;">✅ Gemini 1.5 Flash</span> – API key configured. `;
+                html += `Fallback: ${backendLabel}.`;
             } else {
-                html = `<span style="color:#F59E0B;">⚠️ Gemini selected</span> – No API key set. Requests will use local model templates. Add an API key above to enable Gemini.`;
+                html  = `<span style="color:#F59E0B;">⚠️ Gemini selected</span> – No API key set. `;
+                html += `All requests will use local model. ${backendLabel}.`;
             }
         } else {
-            html = `<span style="color:#60A5FA;">🖥️ Local model only</span> – Privacy-first mode. All generation happens on-device. No data sent to external servers.`;
+            html  = `<span style="color:#60A5FA;">🖥️ Local model only</span> – Privacy-first mode. `;
+            html += `${backendLabel}. No data sent externally.`;
         }
 
         statusEl.innerHTML = html;

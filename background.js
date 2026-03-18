@@ -2,14 +2,18 @@ import { MLEngine } from './lib/ml-engine.js';
 import { sanitizeDOM, detectObfuscatedPayloads } from './lib/sanitizer.js';
 import GeminiClient from './lib/gemini-client.js';
 
+// Initialize model on install AND on every service worker startup
+// (MV3 service workers can be terminated and restarted at any time)
+MLEngine.initialize().catch(e => console.error('[VESSEL] Startup init error:', e));
+
 chrome.runtime.onInstalled.addListener(async () => {
     await MLEngine.initialize();
-    console.log('VESSEL: Background service worker installed. ML Engine initialized.');
+    console.log('[VESSEL] Service worker installed. ML Engine initialized.');
 
     chrome.storage.local.get(['incidents', 'stats'], (result) => {
         if (!result.stats) {
             chrome.storage.local.set({
-                stats: { blocks: 0, avgRisk: 0, totalScans: 0 },
+                stats: { blocks: 0, avgRisk: 0, totalScans: 0, redactions: 0 },
                 incidents: []
             });
         }
@@ -39,8 +43,15 @@ async function handleMessage(message) {
             return await summarizeContent(message.text);
         case 'logIncident':
             return await logIncident(message.data);
+        case 'getModelStatus': {
+            const { mlModelStatus } = await chrome.storage.local.get('mlModelStatus');
+            return {
+                backend:    mlModelStatus || (MLEngine.modelReady ? MLEngine.backend : 'loading'),
+                modelReady: MLEngine.modelReady
+            };
+        }
         default:
-            console.warn('Unknown action:', message.action);
+            console.warn('[VESSEL] Unknown action:', message.action);
             return { error: 'Unknown action' };
     }
 }
@@ -147,10 +158,18 @@ async function summarizeContent(text) {
 async function logIncident(data) {
     const { incidents = [] } = await chrome.storage.local.get('incidents');
     incidents.unshift(data);
-
     if (incidents.length > 50) incidents.pop();
-
     await chrome.storage.local.set({ incidents });
+
+    // Maintain redaction count for paste events
+    if (data.type === 'sensitive_paste') {
+        const { stats } = await chrome.storage.local.get('stats');
+        if (stats) {
+            await chrome.storage.local.set({
+                stats: { ...stats, redactions: (stats.redactions || 0) + 1 }
+            });
+        }
+    }
     return { success: true };
 }
 
