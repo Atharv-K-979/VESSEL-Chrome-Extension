@@ -19,10 +19,26 @@
         let modalInstance = null;
         let isBypassing = false;
 
+        /**
+         * isContextValid – Returns false if the extension was reloaded/updated
+         * but we are still running on an old page instance.
+         */
+        function isContextValid() {
+            try { return !!(chrome.runtime?.id); }
+            catch (_) { return false; }
+        }
+
         document.addEventListener('click', handleUserAction, true);
         document.addEventListener('keydown', handleUserAction, true);
 
         function handleUserAction(event) {
+            // Guard: If extension context is gone, unbind and let events pass natively
+            if (!isContextValid()) {
+                document.removeEventListener('click', handleUserAction, true);
+                document.removeEventListener('keydown', handleUserAction, true);
+                return;
+            }
+
             if (isBypassing) return;
 
             const target = event.target;
@@ -48,37 +64,38 @@
                 event.stopImmediatePropagation();
                 event.preventDefault();
 
-                console.log('VESSEL: Intercepted AI action.');
-
-                if (!chrome.runtime?.id) {
-                    console.warn('[VESSEL] Extension context invalidated. Please refresh the page.');
-                    return;
-                }
+                console.log('[VESSEL] Intercepted AI action.');
 
                 const isChatAction = event.type === 'keydown';
                 const pageContext = capturePageContext(inputElement, !isChatAction);
 
-                chrome.runtime.sendMessage({
-                    action: 'analyzePrompt',
-                    text: pageContext.text,
-                    html: pageContext.html
-                }, (response) => {
-                    if (chrome.runtime.lastError) {
-                        console.error('VESSEL: Analysis failed', chrome.runtime.lastError);
-                        bypassAndExecute(event, target);
-                        return;
-                    }
-
-                    if (response && response.score > 0.7) {
-                        try {
-                            showRiskModal(response, event, target, pageContext.text);
-                        } catch (e) {
-                            console.error('[VESSEL] UI Modal failed to render.', e);
+                try {
+                    chrome.runtime.sendMessage({
+                        action: 'analyzePrompt',
+                        text: pageContext.text,
+                        html: pageContext.html
+                    }, (response) => {
+                        if (chrome.runtime.lastError) {
+                            console.error('[VESSEL] Analysis failed or connection lost', chrome.runtime.lastError);
+                            bypassAndExecute(event, target);
+                            return;
                         }
-                    } else {
-                        bypassAndExecute(event, target);
-                    }
-                });
+
+                        if (response && response.score > 0.7) {
+                            try {
+                                showRiskModal(response, event, target, pageContext.text);
+                            } catch (e) {
+                                console.error('[VESSEL] UI Modal failed to render.', e);
+                                bypassAndExecute(event, target);
+                            }
+                        } else {
+                            bypassAndExecute(event, target);
+                        }
+                    });
+                } catch (sendErr) {
+                    console.error('[VESSEL] sendMessage failed. Context invalid?', sendErr);
+                    bypassAndExecute(event, target);
+                }
             }
         }
 

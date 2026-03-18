@@ -20,6 +20,15 @@
         // Duplicate-injection guard – prevents the isVesselMutating race condition
         let isVesselMutating = false;
 
+        /**
+         * isContextValid – Returns false if the extension was reloaded/updated
+         * but we are still running on an old page instance.
+         */
+        function isContextValid() {
+            try { return !!(chrome.runtime?.id); }
+            catch (_) { return false; }
+        }
+
         chrome.storage.local.get(['geminiApiKey'], (result) => {
             geminiClient = new GeminiClient(result.geminiApiKey || null);
         });
@@ -27,6 +36,13 @@
         document.addEventListener('input', handleInput, true);
         document.addEventListener('focusin', handleFocus, true);
         document.addEventListener('paste', handlePaste, true);
+
+        function unbindAll() {
+            document.removeEventListener('input', handleInput, true);
+            document.removeEventListener('focusin', handleFocus, true);
+            document.removeEventListener('paste', handlePaste, true);
+            hideBadge();
+        }
 
         // ── Utility ────────────────────────────────────────────────────────
 
@@ -58,6 +74,7 @@
         // ── Event Handlers ─────────────────────────────────────────────────
 
         function handleInput(e) {
+            if (!isContextValid()) return unbindAll();
             const target = getTargetElement(e.target);
             // Skip if VESSEL itself is mutating the DOM (injection prevention)
             if (!target || isVesselMutating) return;
@@ -66,6 +83,7 @@
         }
 
         function handlePaste(e) {
+            if (!isContextValid()) return unbindAll();
             const target = getTargetElement(e.target);
             if (!target || isVesselMutating) return;
             if (typingTimer) clearTimeout(typingTimer);
@@ -73,6 +91,7 @@
         }
 
         function handleFocus(e) {
+            if (!isContextValid()) return unbindAll();
             const target = getTargetElement(e.target);
             if (target) {
                 if (currentTarget !== target) currentTarget = target;
@@ -87,10 +106,7 @@
 
             if (!text || typeof text !== 'string') { hideBadge(); return; }
             if (!containsTechnicalTerms(text) || text.trim().length < 10) { hideBadge(); return; }
-            if (!chrome.runtime?.id) {
-                console.warn('[VESSEL] Extension context invalidated. Please refresh.');
-                return;
-            }
+            if (!isContextValid()) return unbindAll();
 
             // Show the ⚡ badge — analysis only begins when the user clicks it
             showBadge(target, '⚡', async () => {
