@@ -3,93 +3,131 @@
 
     let patternsModule = null;
     let uiModule = null;
+    let modulesLoading = null;
 
-    /**
-     * isContextValid – Returns false when the extension has been reloaded/
-     * updated but this content script is still running on an old page.
-     * In that case we must NOT intercept paste — just let it pass through.
-     */
     function isContextValid() {
         try { return !!(chrome.runtime?.id); }
         catch (_) { return false; }
     }
 
-    async function ensureModules() {
-        if (!patternsModule || !uiModule) {
-            const patternsSrc = chrome.runtime.getURL('lib/patterns.js');
-            const uiSrc       = chrome.runtime.getURL('lib/ui-utils.js');
-            [patternsModule, uiModule] = await Promise.all([
-                import(patternsSrc),
-                import(uiSrc)
-            ]);
-        }
+    /**
+     * loadModules – Starts loading the background libraries.
+     * Returns a promise so we can await it if needed.
+     */
+    function loadModules() {
+        if (patternsModule && uiModule) return Promise.resolve();
+        if (modulesLoading) return modulesLoading;
+
+        const patternsSrc = chrome.runtime.getURL('lib/patterns.js');
+        const uiSrc       = chrome.runtime.getURL('lib/ui-utils.js');
+        
+        modulesLoading = Promise.all([
+            import(patternsSrc),
+            import(uiSrc)
+        ]).then(([p, u]) => {
+            patternsModule = p;
+            uiModule = u;
+            return true;
+        }).catch(err => {
+            console.error('[VESSEL] Failed to load redactor modules:', err);
+            patternsModule = null;
+            uiModule = null;
+            throw err;
+        });
+
+        return modulesLoading;
+    }
+
+    // Pre-load the modules asynchronously immediately so paste is instant
+    if (isContextValid()) {
+        loadModules().catch(() => {});
     }
 
     async function handlePaste(event) {
-        // ── Guard: silently pass if extension context is gone ──────────────
         if (!isContextValid()) {
-            // Remove listener so we stop intercepting on this page
             document.removeEventListener('paste', handlePaste, true);
-            return; // let the browser handle paste normally
+            return; 
         }
 
-        // Grab clipboard text synchronously BEFORE any async work,
-        // because the event object is only live during the current tick.
         const clipboardData = event.clipboardData || window.clipboardData;
         if (!clipboardData) return;
         const pastedText = clipboardData.getData('text/plain');
         if (!pastedText) return;
 
-        let modules_ok = false;
-        try {
-            await ensureModules();
-            modules_ok = true;
-        } catch (moduleErr) {
-            // Module load failed (e.g., extension invalidated mid-request)
-            console.warn('[VESSEL] Module load failed, allowing paste:', moduleErr.message);
-            return; // allow paste naturally
-        }
-
-        if (!modules_ok) return;
-
-        const field   = event.target;
-        const matches = scanForSensitiveData(pastedText);
-
-        if (!matches || matches.length === 0) return; // nothing sensitive – pass through
-
-        // Only block paste AFTER we are confident about the matches AND modules
+        // Synchronously intercept the paste event immediately so the browser
+        // doesn't insert the text native while we load/scan.
         event.preventDefault();
         event.stopImmediatePropagation();
 
-        const detectedTypes = [...new Set(matches.map(m => m.name))];
-        console.log(`[VESSEL] Sensitive data detected: ${detectedTypes.join(', ')}`);
+        const field = event.target;
 
-        // Log to service worker — fire-and-forget, never allowed to break paste flow
         try {
-            if (isContextValid()) {
-                chrome.runtime.sendMessage({
-                    action: 'logIncident',
-                    data: {
-                        type:      'sensitive_paste',
-                        details:   `Blocked pasting: ${detectedTypes.join(', ')}`,
-                        score:     0.8,
-                        timestamp: Date.now()
-                    }
-                }).catch(() => {}); // swallow — background may be asleep
+            // Ensure modules are ready (instantly resolves if pre-loaded)
+            await loadModules();
+
+            const matches = scanForSensitiveData(pastedText);
+
+            // If clean, manually insert the original text
+            if (!matches || matches.length === 0) {
+                insertTextSync(field, pastedText);
+                return;
             }
-        } catch (_) { /* extension context may have just died */ }
 
-        // Show modal — if this also fails, fall back to inserting original text
-        try {
-            uiModule.showRedactionModal(field, pastedText, matches);
-        } catch (modalErr) {
-            console.error('[VESSEL] Modal display failed, inserting original text:', modalErr);
-            // Re-insert the original text so user is not left with an empty paste
+            // Sensitive data detected
+            const detectedTypes = [...new Set(matches.map(m => m.name))];
+            console.log(`[VESSEL] Sensitive data detected: ${detectedTypes.join(', ')}`);
+
             try {
-                uiModule.insertText(field, pastedText);
-            } catch (_) {
-                // Last resort: native execCommand
-                document.execCommand('insertText', false, pastedText);
+                if (isContextValid()) {
+                    chrome.runtime.sendMessage({
+                        action: 'logIncident',
+                        data: {
+                            type: 'sensitive_paste',
+                            details: `Blocked pasting: ${detectedTypes.join(', ')}`,
+                            score: 0.8,
+                            timestamp: Date.now()
+                        }
+                    }).catch(() => {});
+                }
+            } catch (_) { }
+
+            try {
+                uiModule.showRedactionModal(field, pastedText, matches);
+            } catch (modalErr) {
+                console.error('[VESSEL] Modal display failed, fallback inserting original text:', modalErr);
+                insertTextSync(field, pastedText);
+            }
+
+        } catch (err) {
+            // If module loading failed or scan crashed, fallback to just pasting it
+            console.warn('[VESSEL] Redactor error, allowing native-like paste:', err);
+            insertTextSync(field, pastedText);
+        }
+    }
+
+    function insertTextSync(field, text) {
+        if (!field) return;
+        field.focus();
+        if (field.tagName === 'INPUT' || field.tagName === 'TEXTAREA') {
+            const start = field.selectionStart || 0;
+            const end = field.selectionEnd || 0;
+            const val = field.value || "";
+            field.value = val.substring(0, start) + text + val.substring(end);
+            field.selectionStart = field.selectionEnd = start + text.length;
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            field.dispatchEvent(new Event('change', { bubbles: true }));
+        } else if (field.isContentEditable) {
+            if (!document.execCommand('insertText', false, text)) {
+                const selection = window.getSelection();
+                if (selection && selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    range.deleteContents();
+                    range.insertNode(document.createTextNode(text));
+                    range.collapse(false);
+                    field.dispatchEvent(new Event('input', { bubbles: true }));
+                } else {
+                    field.innerText += text;
+                }
             }
         }
     }
