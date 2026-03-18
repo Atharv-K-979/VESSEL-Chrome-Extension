@@ -1,5 +1,5 @@
 import { MLEngine } from './lib/ml-engine.js';
-import { sanitizeDOM } from './lib/sanitizer.js';
+import { sanitizeDOM, detectObfuscatedPayloads } from './lib/sanitizer.js';
 import GeminiClient from './lib/gemini-client.js';
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -23,7 +23,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             console.error('VESSEL: Worker error:', error);
             sendResponse({ success: false, error: error.message });
         });
-    return true; // Keep channel open for async response
+    return true;
 });
 
 async function handleMessage(message) {
@@ -46,9 +46,15 @@ async function handleMessage(message) {
 }
 
 async function analyzePageContent(html, text = "") {
+    // 1. Detect obfuscated payloads in the raw HTML (before sanitization strips them)
+    const obfuscatedThreats = html ? detectObfuscatedPayloads(html) : [];
+
+    // 2. Sanitize the DOM to get clean plain text
     const cleanHtml = sanitizeDOM(html);
     const combinedContent = `${text}\n${cleanHtml}`;
-    const threatScore = await MLEngine.detectInjection(combinedContent);
+
+    // 3. Score with both keyword analysis and obfuscation threats
+    const threatScore = await MLEngine.detectInjection(combinedContent, obfuscatedThreats);
 
     if (threatScore > 0.7) {
         await logIncident({
@@ -57,7 +63,6 @@ async function analyzePageContent(html, text = "") {
             score: threatScore,
             timestamp: Date.now()
         });
-
         updateStats(threatScore, true);
     } else {
         updateStats(threatScore, false);
@@ -65,7 +70,8 @@ async function analyzePageContent(html, text = "") {
 
     return {
         score: threatScore,
-        sanitized: combinedContent
+        sanitized: combinedContent,
+        threats: obfuscatedThreats   // Pass threats to content script for display
     };
 }
 

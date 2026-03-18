@@ -113,20 +113,19 @@
                 analysis.score,
                 originalText,
                 analysis.sanitized,
+                analysis.threats || [],       // ← new: pass obfuscated threat details
                 () => { // Proceed
                     modalInstance = null;
                     bypassAndExecute(originalEvent, originalTarget);
                 },
                 () => { // Send Sanitized
                     modalInstance = null;
-                    // Attempt to find the closest AI input field or fallback to any text area
                     let inputField = originalTarget.closest('form')?.querySelector('textarea, [contenteditable="true"], input[type="text"]');
                     if (!inputField) {
                         inputField = document.querySelector('textarea, [contenteditable="true"], input[type="text"]');
                     }
 
                     if (inputField) {
-                        // Clear the current value and set it to sanitized
                         if (inputField.tagName === 'INPUT' || inputField.tagName === 'TEXTAREA') {
                             inputField.value = '';
                         } else if (inputField.isContentEditable) {
