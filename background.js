@@ -34,8 +34,7 @@ async function handleMessage(message) {
     switch (message.action) {
         case 'analyzePage':
         case 'analyzePrompt':
-            // Merge both analyzing actions through the same injection engine
-            return await analyzePageContent(message.html, message.text);
+            return await analyzePageContent(message.text, message.threats || []);
         case 'analyzeSpec':
         case 'GENERATE_SPECS':
             return await analyzeSpecification(message.text);
@@ -56,13 +55,7 @@ async function handleMessage(message) {
     }
 }
 
-async function analyzePageContent(html, text = "") {
-    // 1. Detect obfuscated payloads in the raw HTML (before sanitization strips them)
-    const obfuscatedThreats = html ? detectObfuscatedPayloads(html) : [];
-
-    // 2. Sanitize the DOM to get clean plain text
-    const cleanHtml = sanitizeDOM(html);
-    const combinedContent = `${text}\n${cleanHtml}`;
+async function analyzePageContent(combinedContent, obfuscatedThreats = []) {
 
     // 3. Score with both keyword analysis and obfuscation threats
     const threatScore = await MLEngine.detectInjection(combinedContent, obfuscatedThreats);

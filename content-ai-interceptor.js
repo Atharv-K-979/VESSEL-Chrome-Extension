@@ -1,8 +1,16 @@
 
 (async () => {
     try {
-        const src = chrome.runtime.getURL('lib/ui-utils.js');
-        const { createModal, escapeHtml, showThreatModal, insertText } = await import(src);
+        const uiSrc = chrome.runtime.getURL('lib/ui-utils.js');
+        const sanitizerSrc = chrome.runtime.getURL('lib/sanitizer.js');
+        
+        const [
+            { createModal, escapeHtml, showThreatModal, insertText },
+            { detectObfuscatedPayloads, sanitizeDOM }
+        ] = await Promise.all([
+            import(uiSrc),
+            import(sanitizerSrc)
+        ]);
 
         const AI_BUTTON_SELECTORS = [
             '[data-testid="comet-summarize"]',
@@ -69,11 +77,17 @@
                 const isChatAction = event.type === 'keydown';
                 const pageContext = capturePageContext(inputElement, !isChatAction);
 
+                // Extract threats directly in the content script where DOMParser is available
+                const threats = detectObfuscatedPayloads(pageContext.html);
+                // Also sanitize HTML here to cleanly send plain text to the background worker
+                const sanitizedHtmlText = sanitizeDOM(pageContext.html);
+                const combinedText = `${pageContext.text}\n${sanitizedHtmlText}`;
+
                 try {
                     chrome.runtime.sendMessage({
                         action: 'analyzePrompt',
-                        text: pageContext.text,
-                        html: pageContext.html
+                        text: combinedText,
+                        threats: threats
                     }, (response) => {
                         if (chrome.runtime.lastError) {
                             console.error('[VESSEL] Analysis failed or connection lost', chrome.runtime.lastError);
