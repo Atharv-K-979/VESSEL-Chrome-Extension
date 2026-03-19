@@ -54,6 +54,12 @@
         const pastedText = clipboardData.getData('text/plain');
         if (!pastedText) return;
 
+        const selection = window.getSelection();
+        let savedRange = null;
+        if (selection && selection.rangeCount > 0) {
+            savedRange = selection.getRangeAt(0).cloneRange();
+        }
+
         // Synchronously intercept the paste event immediately so the browser
         // doesn't insert the text native while we load/scan.
         event.preventDefault();
@@ -65,11 +71,16 @@
             // Ensure modules are ready (instantly resolves if pre-loaded)
             await loadModules();
 
-            const matches = scanForSensitiveData(pastedText);
+            let matches = scanForSensitiveData(pastedText);
+
+            // Filter overlaps BEFORE presenting counts to user
+            if (patternsModule && typeof patternsModule.resolveOverlaps === 'function') {
+                matches = patternsModule.resolveOverlaps(matches);
+            }
 
             // If clean, manually insert the original text
             if (!matches || matches.length === 0) {
-                insertTextSync(field, pastedText);
+                insertTextSync(field, pastedText, savedRange);
                 return;
             }
 
@@ -92,20 +103,20 @@
             } catch (_) { }
 
             try {
-                uiModule.showRedactionModal(field, pastedText, matches);
+                uiModule.showRedactionModal(field, pastedText, matches, savedRange);
             } catch (modalErr) {
                 console.error('[VESSEL] Modal display failed, fallback inserting original text:', modalErr);
-                insertTextSync(field, pastedText);
+                insertTextSync(field, pastedText, savedRange);
             }
 
         } catch (err) {
             // If module loading failed or scan crashed, fallback to just pasting it
             console.warn('[VESSEL] Redactor error, allowing native-like paste:', err);
-            insertTextSync(field, pastedText);
+            insertTextSync(field, pastedText, savedRange);
         }
     }
 
-    function insertTextSync(field, text) {
+    function insertTextSync(field, text, savedRange) {
         if (!field) return;
         field.focus();
         if (field.tagName === 'INPUT' || field.tagName === 'TEXTAREA') {
@@ -117,10 +128,15 @@
             field.dispatchEvent(new Event('input', { bubbles: true }));
             field.dispatchEvent(new Event('change', { bubbles: true }));
         } else if (field.isContentEditable) {
+            if (savedRange) {
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(savedRange);
+            }
             if (!document.execCommand('insertText', false, text)) {
-                const selection = window.getSelection();
-                if (selection && selection.rangeCount > 0) {
-                    const range = selection.getRangeAt(0);
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
                     range.deleteContents();
                     range.insertNode(document.createTextNode(text));
                     range.collapse(false);

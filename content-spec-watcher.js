@@ -109,7 +109,8 @@
             if (!isContextValid()) return unbindAll();
 
             // Show the ⚡ badge — analysis only begins when the user clicks it
-            showBadge(target, '⚡', async () => {
+            showBadge(target, '⚡ Analyze Features', async (e) => {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
                 showLoadingBadge(target);
 
                 try {
@@ -160,7 +161,7 @@
             badge.className = 'vessel-loading-badge';
             badge.style.cssText = `
                 position: absolute;
-                z-index: 10000;
+                z-index: 2147483647;
                 background: linear-gradient(135deg, #111827 0%, #1F2937 100%);
                 color: #58A6FF;
                 border: 1px solid rgba(88, 166, 255, 0.3);
