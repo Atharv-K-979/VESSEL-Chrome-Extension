@@ -59,6 +59,15 @@
                     try { return target.matches(sel) || target.closest(sel); }
                     catch (e) { return false; } // in case of :has() unsupported
                 });
+                
+                // Fallback: If it's a generic button with AI/Summarize text, treat as AI action
+                if (!isAIAction && (target.tagName === 'BUTTON' || target.closest('button'))) {
+                    const btnText = (target.textContent || '').toLowerCase();
+                    if (btnText.includes('test ai') || btnText.includes('summarize')) {
+                        isAIAction = true;
+                    }
+                }
+                
                 if (isAIAction) inputElement = document.querySelector('textarea, [contenteditable="true"]');
             } else if (event.type === 'keydown' && event.key === 'Enter' && !event.shiftKey) {
                 if (target.tagName === 'TEXTAREA' || target.isContentEditable) {

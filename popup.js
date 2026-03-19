@@ -85,7 +85,7 @@ function loadActivity() {
         const typeConfig = {
             'prompt_injection': { icon: '🤖', label: 'Prompt Injection Blocked' },
             'sensitive_paste':  { icon: '🔒', label: 'Sensitive Paste Redacted' },
-            'spec':             { icon: '📋', label: 'Spec Analyzed' },
+            'spec':             { icon: '', label: 'Spec Analyzed' },
             'default':          { icon: '🛡️', label: 'Security Event' }
         };
 

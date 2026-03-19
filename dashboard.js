@@ -30,7 +30,7 @@ function loadLogs() {
                 typeClass = 'danger';
                 formattedType = 'Prompt Injection Blocked';
             } else if (act.type === 'spec') {
-                icon = '📋';
+                icon = '';
                 typeClass = 'accent';
                 formattedType = 'Spec Analysis';
             }

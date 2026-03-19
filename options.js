@@ -115,22 +115,22 @@ function updateModelStatus() {
 
         const backendLabel = {
             onnx:    '⚙️ ONNX model loaded',
-            mock:    '📋 Heuristic fallback (no ONNX model)',
+            mock:    ' Heuristic fallback (no ONNX model)',
             loading: '⏳ Local model loading…',
             unknown: '❓ Status unknown'
-        }[backend] ?? `🖥️ ${backend}`;
+        }[backend] ?? ` ${backend}`;
 
         let html = '';
         if (pref === 'gemini') {
             if (hasKey) {
-                html  = `<span style="color:#34D399;">✅ Gemini 1.5 Flash</span> – API key configured. `;
+                html  = `<span style="color:#34D399;"> Gemini 1.5 Flash</span> – API key configured. `;
                 html += `Fallback: ${backendLabel}.`;
             } else {
                 html  = `<span style="color:#F59E0B;">⚠️ Gemini selected</span> – No API key set. `;
                 html += `All requests will use local model. ${backendLabel}.`;
             }
         } else {
-            html  = `<span style="color:#60A5FA;">🖥️ Local model only</span> – Privacy-first mode. `;
+            html  = `<span style="color:#60A5FA;"> Local model only</span> – Privacy-first mode. `;
             html += `${backendLabel}. No data sent externally.`;
         }
 

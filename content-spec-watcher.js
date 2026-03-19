@@ -215,11 +215,11 @@
 
             // Build model/timing badge for the modal footer
             const modelLabel = {
-                gemini:         '✨ Gemini 1.5 Flash',
-                local:          '🖥️ Local Model',
-                local_fallback: '🖥️ Local Model (Gemini fallback)',
-                heuristic:      '📋 Template Heuristic'
-            }[modelSource] || '📋 Template Heuristic';
+                gemini:         ' Gemini 1.5 Flash',
+                local:          ' Local Model',
+                local_fallback: ' Local Model (Gemini fallback)',
+                heuristic:      ' Template Heuristic'
+            }[modelSource] || ' Template Heuristic';
 
             const timingNote = inferenceMs
                 ? `<small style="color:#9CA3AF; font-size:11px;">${modelLabel} · ${inferenceMs}ms</small>`
